@@ -322,9 +322,27 @@ ORDER BY rating_group, average_rating DESC;
 -- Enable text-based searching on product name and description
 -- ============================================================
 
-ALTER TABLE product
-ADD FULLTEXT INDEX ft_product_name_description
-(name, description);
+-- MySQL has no CREATE INDEX IF NOT EXISTS, so the index is only added
+-- when information_schema shows it is missing (keeps the file re-runnable).
+SET @ft_exists = (
+    SELECT COUNT(*)
+    FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name   = 'product'
+      AND index_name   = 'ft_product_name_description'
+);
+
+SET @ddl = IF(
+    @ft_exists = 0,
+    'ALTER TABLE product ADD FULLTEXT INDEX ft_product_name_description (name, description)',
+    'SELECT ''ft_product_name_description already exists'' AS note'
+);
+
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SHOW INDEX FROM product WHERE Key_name = 'ft_product_name_description';
 
 
 -- ============================================================
@@ -431,9 +449,9 @@ ORDER BY relevance DESC;
 
 
 -- ============================================================
--- 20. SEARCH WITH RELEVANCE THRESHOLD
--- Display products matching "Apple" and show their
--- calculated relevance score
+-- 20. SEARCH WITH RELEVANCE SCORE FILTER
+-- Display products matching "Apple" with a non-zero
+-- relevance score
 -- ============================================================
 
 SELECT

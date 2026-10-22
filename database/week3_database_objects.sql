@@ -1,7 +1,8 @@
 USE ecommerce_marketplace;
 
 -- =====================================================================
--- WEEK 3 — DATABASE OBJECTS
+-- WEEK 3 — DATABASE OBJECTS: VIEWS, USERS & ROLES, TRIGGERS
+-- Run after seed.sql. Safe to re-run.
 -- =====================================================================
 
 
@@ -22,12 +23,12 @@ SELECT
     pv.price,
     i.quantity AS stock_quantity,
     i.reorder_level
-FROM PRODUCT p
-JOIN SELLER_PROFILE sp
+FROM product p
+JOIN seller_profile sp
     ON sp.user_id = p.seller_id
-JOIN PRODUCT_VARIANT pv
+JOIN product_variant pv
     ON pv.product_id = p.product_id
-JOIN INVENTORY i
+JOIN inventory i
     ON i.variant_id = pv.variant_id;
 
 
@@ -40,12 +41,12 @@ SELECT
     o.order_date,
     o.status AS order_status,
     o.total_amount
-FROM USERS u
-JOIN ORDERS o
+FROM users u
+JOIN orders o
     ON o.user_id = u.user_id;
 
 
--- 1.3 Seller sales summary view
+-- 1.3 Seller sales summary view (cancelled orders are not revenue)
 CREATE OR REPLACE VIEW vw_seller_sales_summary AS
 SELECT
     sp.user_id AS seller_id,
@@ -53,12 +54,18 @@ SELECT
     COUNT(DISTINCT p.product_id) AS total_products,
     COUNT(DISTINCT oi.order_id) AS total_orders,
     COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS total_revenue
-FROM SELLER_PROFILE sp
-LEFT JOIN PRODUCT p
+FROM seller_profile sp
+LEFT JOIN product p
     ON p.seller_id = sp.user_id
-LEFT JOIN PRODUCT_VARIANT pv
+LEFT JOIN product_variant pv
     ON pv.product_id = p.product_id
-LEFT JOIN ORDER_ITEM oi
+LEFT JOIN (
+    SELECT oi2.order_id, oi2.variant_id, oi2.quantity, oi2.unit_price
+    FROM order_item oi2
+    JOIN orders o
+        ON o.order_id = oi2.order_id
+    WHERE o.status <> 'CANCELLED'
+) AS oi
     ON oi.variant_id = pv.variant_id
 GROUP BY sp.user_id, sp.store_name;
 
@@ -72,10 +79,10 @@ SELECT
     pv.sku,
     i.quantity,
     i.reorder_level
-FROM PRODUCT p
-JOIN PRODUCT_VARIANT pv
+FROM product p
+JOIN product_variant pv
     ON pv.product_id = p.product_id
-JOIN INVENTORY i
+JOIN inventory i
     ON i.variant_id = pv.variant_id
 WHERE i.quantity <= i.reorder_level;
 
@@ -89,86 +96,85 @@ SELECT * FROM vw_seller_sales_summary;
 
 SELECT * FROM vw_low_stock_products;
 
+
 -- =====================================================================
 -- 2. USERS AND ROLES
 -- =====================================================================
 
--- Remove previously created demonstration users
-DROP USER IF EXISTS 'marketplace_viewer'@'localhost';
-DROP USER IF EXISTS 'marketplace_manager_user'@'localhost';
+-- Remove objects from a previous run so the script can be re-run
+DROP USER IF EXISTS 'customer_user'@'localhost';
+DROP USER IF EXISTS 'seller_user'@'localhost';
+DROP USER IF EXISTS 'admin_user'@'localhost';
 
--- Remove previously created roles
-DROP ROLE IF EXISTS marketplace_readonly;
-DROP ROLE IF EXISTS marketplace_manager;
+DROP ROLE IF EXISTS marketplace_customer;
+DROP ROLE IF EXISTS marketplace_seller;
+DROP ROLE IF EXISTS marketplace_admin;
 
 
 -- ---------------------------------------------------------------------
 -- CREATE DATABASE ROLES
 -- ---------------------------------------------------------------------
 
-CREATE ROLE IF NOT EXISTS marketplace_customer;
-CREATE ROLE IF NOT EXISTS marketplace_seller;
-CREATE ROLE IF NOT EXISTS marketplace_admin;
+CREATE ROLE marketplace_customer;
+CREATE ROLE marketplace_seller;
+CREATE ROLE marketplace_admin;
 
 
 -- ---------------------------------------------------------------------
 -- CUSTOMER ROLE
--- Customers can browse products and perform order-related operations.
+-- Browse the catalog; manage own cart, wishlist, addresses, orders
+-- and reviews. No access to the raw users table (password hashes).
 -- ---------------------------------------------------------------------
 
-GRANT SELECT
-ON ecommerce_marketplace.PRODUCT
-TO marketplace_customer;
+GRANT SELECT ON ecommerce_marketplace.vw_product_catalog TO marketplace_customer;
+GRANT SELECT ON ecommerce_marketplace.product            TO marketplace_customer;
+GRANT SELECT ON ecommerce_marketplace.product_variant    TO marketplace_customer;
+GRANT SELECT ON ecommerce_marketplace.product_image      TO marketplace_customer;
+GRANT SELECT ON ecommerce_marketplace.product_category   TO marketplace_customer;
+GRANT SELECT ON ecommerce_marketplace.category           TO marketplace_customer;
+GRANT SELECT ON ecommerce_marketplace.brand              TO marketplace_customer;
+GRANT SELECT ON ecommerce_marketplace.inventory          TO marketplace_customer;
+GRANT SELECT ON ecommerce_marketplace.coupon             TO marketplace_customer;
 
-GRANT SELECT
-ON ecommerce_marketplace.PRODUCT_VARIANT
-TO marketplace_customer;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ecommerce_marketplace.cart_item     TO marketplace_customer;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ecommerce_marketplace.wishlist_item TO marketplace_customer;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ecommerce_marketplace.address       TO marketplace_customer;
+GRANT SELECT, INSERT                 ON ecommerce_marketplace.cart          TO marketplace_customer;
+GRANT SELECT, INSERT                 ON ecommerce_marketplace.wishlist      TO marketplace_customer;
 
-GRANT SELECT
-ON ecommerce_marketplace.INVENTORY
-TO marketplace_customer;
-
-GRANT SELECT, INSERT, UPDATE
-ON ecommerce_marketplace.ORDERS
-TO marketplace_customer;
-
-GRANT SELECT, INSERT, UPDATE
-ON ecommerce_marketplace.ORDER_ITEM
-TO marketplace_customer;
-
-GRANT SELECT, INSERT, UPDATE
-ON ecommerce_marketplace.REVIEW
-TO marketplace_customer;
+GRANT SELECT, INSERT, UPDATE ON ecommerce_marketplace.orders         TO marketplace_customer;
+GRANT SELECT, INSERT, UPDATE ON ecommerce_marketplace.order_item     TO marketplace_customer;
+GRANT SELECT, INSERT, UPDATE ON ecommerce_marketplace.review         TO marketplace_customer;
+GRANT SELECT, INSERT         ON ecommerce_marketplace.return_request TO marketplace_customer;
+GRANT SELECT                 ON ecommerce_marketplace.payment        TO marketplace_customer;
+GRANT SELECT                 ON ecommerce_marketplace.shipment       TO marketplace_customer;
 
 
 -- ---------------------------------------------------------------------
 -- SELLER ROLE
--- Sellers can manage products, variants and inventory.
+-- Manage own catalog and stock; view orders; update shipments.
 -- ---------------------------------------------------------------------
 
-GRANT SELECT, INSERT, UPDATE
-ON ecommerce_marketplace.PRODUCT
-TO marketplace_seller;
+GRANT SELECT, INSERT, UPDATE ON ecommerce_marketplace.product           TO marketplace_seller;
+GRANT SELECT, INSERT, UPDATE ON ecommerce_marketplace.product_variant   TO marketplace_seller;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ecommerce_marketplace.product_image    TO marketplace_seller;
+GRANT SELECT, INSERT, DELETE         ON ecommerce_marketplace.product_category TO marketplace_seller;
+GRANT SELECT, INSERT, DELETE         ON ecommerce_marketplace.variant_attribute TO marketplace_seller;
+GRANT SELECT ON ecommerce_marketplace.brand           TO marketplace_seller;
+GRANT SELECT ON ecommerce_marketplace.category        TO marketplace_seller;
+GRANT SELECT ON ecommerce_marketplace.attribute       TO marketplace_seller;
+GRANT SELECT ON ecommerce_marketplace.attribute_value TO marketplace_seller;
 
-GRANT SELECT, INSERT, UPDATE
-ON ecommerce_marketplace.PRODUCT_VARIANT
-TO marketplace_seller;
+GRANT SELECT, INSERT, UPDATE ON ecommerce_marketplace.inventory             TO marketplace_seller;
+GRANT SELECT, INSERT         ON ecommerce_marketplace.inventory_transaction TO marketplace_seller;
 
-GRANT SELECT, INSERT, UPDATE
-ON ecommerce_marketplace.INVENTORY
-TO marketplace_seller;
-
-GRANT SELECT
-ON ecommerce_marketplace.ORDERS
-TO marketplace_seller;
-
-GRANT SELECT
-ON ecommerce_marketplace.ORDER_ITEM
-TO marketplace_seller;
-
-GRANT SELECT
-ON ecommerce_marketplace.REVIEW
-TO marketplace_seller;
+GRANT SELECT         ON ecommerce_marketplace.orders         TO marketplace_seller;
+GRANT SELECT         ON ecommerce_marketplace.order_item     TO marketplace_seller;
+GRANT SELECT, UPDATE ON ecommerce_marketplace.shipment       TO marketplace_seller;
+GRANT SELECT, UPDATE ON ecommerce_marketplace.return_request TO marketplace_seller;
+GRANT SELECT         ON ecommerce_marketplace.review         TO marketplace_seller;
+GRANT SELECT         ON ecommerce_marketplace.vw_seller_sales_summary TO marketplace_seller;
+GRANT SELECT         ON ecommerce_marketplace.vw_low_stock_products   TO marketplace_seller;
 
 
 -- ---------------------------------------------------------------------
@@ -183,15 +189,17 @@ TO marketplace_admin;
 
 -- ---------------------------------------------------------------------
 -- CREATE DEMONSTRATION DATABASE USERS
+-- Demo-only passwords for the lab. The web application will read its
+-- own credentials from environment variables, never from source code.
 -- ---------------------------------------------------------------------
 
-CREATE USER IF NOT EXISTS 'customer_user'@'localhost'
+CREATE USER 'customer_user'@'localhost'
 IDENTIFIED BY 'Customer@123';
 
-CREATE USER IF NOT EXISTS 'seller_user'@'localhost'
+CREATE USER 'seller_user'@'localhost'
 IDENTIFIED BY 'Seller@123';
 
-CREATE USER IF NOT EXISTS 'admin_user'@'localhost'
+CREATE USER 'admin_user'@'localhost'
 IDENTIFIED BY 'Admin@123';
 
 
@@ -227,66 +235,55 @@ TO 'admin_user'@'localhost';
 -- VERIFY ROLE ASSIGNMENTS
 -- ---------------------------------------------------------------------
 
-SHOW GRANTS FOR 'customer_user'@'localhost';
+SHOW GRANTS FOR 'customer_user'@'localhost' USING marketplace_customer;
 
-SHOW GRANTS FOR 'seller_user'@'localhost';
+SHOW GRANTS FOR 'seller_user'@'localhost' USING marketplace_seller;
 
-SHOW GRANTS FOR 'admin_user'@'localhost';
-
-USE ecommerce_marketplace;
-
--- =========================================================
--- TRIGGERS
--- =========================================================
-
--- Supporting table: Order Status History
-CREATE TABLE IF NOT EXISTS order_status_history (
-    history_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    order_id BIGINT UNSIGNED NOT NULL,
-    old_status ENUM(
-        'PENDING',
-        'CONFIRMED',
-        'PROCESSING',
-        'SHIPPED',
-        'DELIVERED',
-        'CANCELLED',
-        'RETURNED'
-    ),
-    new_status ENUM(
-        'PENDING',
-        'CONFIRMED',
-        'PROCESSING',
-        'SHIPPED',
-        'DELIVERED',
-        'CANCELLED',
-        'RETURNED'
-    ) NOT NULL,
-    changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    FOREIGN KEY (order_id)
-        REFERENCES orders(order_id)
-        ON DELETE CASCADE
-);
+SHOW GRANTS FOR 'admin_user'@'localhost' USING marketplace_admin;
 
 
--- Supporting table: Low Stock Notifications
-CREATE TABLE IF NOT EXISTS low_stock_notification (
-    notification_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    variant_id BIGINT UNSIGNED NOT NULL,
-    current_quantity INT UNSIGNED NOT NULL,
-    reorder_level INT UNSIGNED NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+-- =====================================================================
+-- 3. TRIGGERS
+-- All triggers work on the existing 28 tables only.
+-- Stock movements are written to inventory_transaction, so the
+-- ledger always explains the current inventory.quantity.
+-- =====================================================================
 
-    FOREIGN KEY (variant_id)
-        REFERENCES product_variant(variant_id)
-        ON DELETE CASCADE
-);
-
+DROP TRIGGER IF EXISTS trg_check_stock_before_order_item;
+DROP TRIGGER IF EXISTS trg_reduce_inventory;
+DROP TRIGGER IF EXISTS trg_restore_inventory_on_cancellation;
+DROP TRIGGER IF EXISTS trg_order_status_history;
 
 DELIMITER //
 
 -- =========================================================
--- 1. ORDER ITEM ADDED -> REDUCE INVENTORY
+-- 1. BEFORE ORDER ITEM INSERT -> VALIDATE STOCK
+-- Rejects the insert with a clear message instead of letting
+-- the UNSIGNED stock column overflow.
+-- =========================================================
+
+CREATE TRIGGER trg_check_stock_before_order_item
+BEFORE INSERT ON order_item
+FOR EACH ROW
+BEGIN
+    DECLARE v_stock INT UNSIGNED;
+
+    SELECT quantity INTO v_stock
+    FROM inventory
+    WHERE variant_id = NEW.variant_id;
+
+    IF v_stock IS NULL THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'No inventory record exists for this variant.';
+    ELSEIF v_stock < NEW.quantity THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Insufficient stock for this variant.';
+    END IF;
+END//
+
+
+-- =========================================================
+-- 2. ORDER ITEM ADDED -> REDUCE INVENTORY + LOG PURCHASE
 -- =========================================================
 
 CREATE TRIGGER trg_reduce_inventory
@@ -296,11 +293,19 @@ BEGIN
     UPDATE inventory
     SET quantity = quantity - NEW.quantity
     WHERE variant_id = NEW.variant_id;
+
+    INSERT INTO inventory_transaction (
+        inventory_id, transaction_type, quantity, reference_type, reference_id
+    )
+    SELECT
+        inventory_id, 'PURCHASE', -CAST(NEW.quantity AS SIGNED), 'ORDER', NEW.order_id
+    FROM inventory
+    WHERE variant_id = NEW.variant_id;
 END//
 
 
 -- =========================================================
--- 2. ORDER CANCELLED -> RESTORE INVENTORY
+-- 3. ORDER CANCELLED -> RESTORE INVENTORY + LOG ADJUSTMENT
 -- =========================================================
 
 CREATE TRIGGER trg_restore_inventory_on_cancellation
@@ -316,12 +321,22 @@ BEGIN
         SET i.quantity = i.quantity + oi.quantity
         WHERE oi.order_id = NEW.order_id;
 
+        INSERT INTO inventory_transaction (
+            inventory_id, transaction_type, quantity, reference_type, reference_id
+        )
+        SELECT
+            i.inventory_id, 'ADJUSTMENT', oi.quantity, 'ORDER_CANCELLED', NEW.order_id
+        FROM order_item oi
+        JOIN inventory i
+            ON i.variant_id = oi.variant_id
+        WHERE oi.order_id = NEW.order_id;
+
     END IF;
 END//
 
 
 -- =========================================================
--- 3. ORDER STATUS CHANGE -> STATUS HISTORY
+-- 4. ORDER STATUS CHANGE -> STATUS HISTORY
 -- =========================================================
 
 CREATE TRIGGER trg_order_status_history
@@ -344,30 +359,21 @@ BEGIN
     END IF;
 END//
 
-
--- =========================================================
--- 4. LOW STOCK -> CREATE NOTIFICATION
--- =========================================================
-
-CREATE TRIGGER trg_low_stock_notification
-AFTER UPDATE ON inventory
-FOR EACH ROW
-BEGIN
-    IF NEW.quantity <= NEW.reorder_level
-       AND OLD.quantity > OLD.reorder_level THEN
-
-        INSERT INTO low_stock_notification (
-            variant_id,
-            current_quantity,
-            reorder_level
-        )
-        VALUES (
-            NEW.variant_id,
-            NEW.quantity,
-            NEW.reorder_level
-        );
-
-    END IF;
-END//
-
 DELIMITER ;
+
+
+-- =====================================================================
+-- 4. TRIGGER DEMONSTRATION (uncomment to try; these change data)
+-- =====================================================================
+
+-- Over-ordering is blocked by trigger 1 (variant 10 has only 2 units):
+-- INSERT INTO order_item (order_id, variant_id, quantity, unit_price)
+-- VALUES (3, 10, 50, 6999.00);
+
+-- Status change is logged by trigger 4:
+-- UPDATE orders SET status = 'PROCESSING' WHERE order_id = 3;
+-- SELECT * FROM order_status_history WHERE order_id = 3;
+
+-- Cancellation restores stock via trigger 3:
+-- UPDATE orders SET status = 'CANCELLED' WHERE order_id = 4;
+-- SELECT * FROM inventory_transaction WHERE reference_type = 'ORDER_CANCELLED';

@@ -16,12 +16,12 @@ SELECT
     p.name AS product_name,
     pv.variant_id,
     pv.price
-FROM PRODUCT p
-JOIN PRODUCT_VARIANT pv
+FROM product p
+JOIN product_variant pv
     ON pv.product_id = p.product_id
 WHERE pv.price > (
     SELECT AVG(pv2.price)
-    FROM PRODUCT_VARIANT pv2
+    FROM product_variant pv2
     WHERE pv2.product_id = p.product_id
 );
 
@@ -33,17 +33,17 @@ SELECT
     p.name AS product_name,
     (
         SELECT AVG(r.rating)
-        FROM REVIEW r
+        FROM review r
         WHERE r.product_id = p.product_id
     ) AS product_avg_rating
-FROM PRODUCT p
+FROM product p
 WHERE (
     SELECT AVG(r.rating)
-    FROM REVIEW r
+    FROM review r
     WHERE r.product_id = p.product_id
 ) > (
     SELECT AVG(rating)
-    FROM REVIEW
+    FROM review
 );
 
 
@@ -54,12 +54,12 @@ SELECT
     u.name,
     o.order_id,
     o.total_amount
-FROM USERS u
-JOIN ORDERS o
+FROM users u
+JOIN orders o
     ON o.user_id = u.user_id
 WHERE o.total_amount > (
     SELECT AVG(o2.total_amount)
-    FROM ORDERS o2
+    FROM orders o2
     WHERE o2.user_id = u.user_id
 );
 
@@ -70,17 +70,17 @@ SELECT
     p.product_id,
     p.seller_id,
     p.name AS product_name
-FROM PRODUCT p
+FROM product p
 WHERE (
     SELECT COUNT(*)
-    FROM PRODUCT_VARIANT pv
+    FROM product_variant pv
     WHERE pv.product_id = p.product_id
 ) > (
     SELECT AVG(variant_count)
     FROM (
         SELECT COUNT(*) AS variant_count
-        FROM PRODUCT p2
-        JOIN PRODUCT_VARIANT pv2
+        FROM product p2
+        JOIN product_variant pv2
             ON pv2.product_id = p2.product_id
         WHERE p2.seller_id = p.seller_id
         GROUP BY p2.product_id
@@ -93,15 +93,15 @@ WHERE (
 SELECT DISTINCT
     p.product_id,
     p.name AS product_name
-FROM PRODUCT p
-JOIN PRODUCT_VARIANT pv
+FROM product p
+JOIN product_variant pv
     ON pv.product_id = p.product_id
-JOIN INVENTORY i
+JOIN inventory i
     ON i.variant_id = pv.variant_id
 WHERE i.quantity < (
     SELECT AVG(i2.quantity)
-    FROM PRODUCT_VARIANT pv2
-    JOIN INVENTORY i2
+    FROM product_variant pv2
+    JOIN inventory i2
         ON i2.variant_id = pv2.variant_id
     WHERE pv2.product_id = p.product_id
 );
@@ -116,18 +116,18 @@ WHERE i.quantity < (
 SELECT DISTINCT
     p.product_id,
     p.name AS product_name
-FROM PRODUCT p
-JOIN PRODUCT_CATEGORY pc
+FROM product p
+JOIN product_category pc
     ON pc.product_id = p.product_id
 WHERE pc.category_id IN (
     SELECT category_id
-    FROM PRODUCT_CATEGORY
+    FROM product_category
     GROUP BY category_id
     HAVING COUNT(*) > (
         SELECT AVG(product_count)
         FROM (
             SELECT COUNT(*) AS product_count
-            FROM PRODUCT_CATEGORY
+            FROM product_category
             GROUP BY category_id
         ) AS category_counts
     )
@@ -139,19 +139,19 @@ WHERE pc.category_id IN (
 SELECT DISTINCT
     u.user_id,
     u.name
-FROM USERS u
+FROM users u
 WHERE u.user_id IN (
     SELECT o.user_id
-    FROM ORDERS o
+    FROM orders o
     WHERE o.order_id IN (
         SELECT oi.order_id
-        FROM ORDER_ITEM oi
+        FROM order_item oi
         WHERE oi.variant_id IN (
             SELECT pv.variant_id
-            FROM PRODUCT_VARIANT pv
+            FROM product_variant pv
             WHERE pv.product_id IN (
                 SELECT r.product_id
-                FROM REVIEW r
+                FROM review r
                 GROUP BY r.product_id
                 HAVING AVG(r.rating) >= 4
             )
@@ -165,24 +165,24 @@ WHERE u.user_id IN (
 SELECT DISTINCT
     sp.user_id,
     sp.store_name
-FROM SELLER_PROFILE sp
+FROM seller_profile sp
 WHERE sp.user_id IN (
     SELECT p.seller_id
-    FROM PRODUCT p
+    FROM product p
     WHERE p.product_id IN (
         SELECT pv.product_id
-        FROM PRODUCT_VARIANT pv
+        FROM product_variant pv
         WHERE pv.variant_id IN (
             SELECT oi.variant_id
-            FROM ORDER_ITEM oi
+            FROM order_item oi
         )
     )
     AND p.product_id IN (
         SELECT pc.product_id
-        FROM PRODUCT_CATEGORY pc
+        FROM product_category pc
         WHERE pc.category_id IN (
             SELECT pc2.category_id
-            FROM PRODUCT_CATEGORY pc2
+            FROM product_category pc2
             GROUP BY pc2.category_id
             HAVING COUNT(*) > 1
         )
@@ -196,10 +196,10 @@ SELECT
     p.product_id,
     p.name AS product_name,
     SUM(oi.quantity) AS total_quantity_sold
-FROM PRODUCT p
-JOIN PRODUCT_VARIANT pv
+FROM product p
+JOIN product_variant pv
     ON pv.product_id = p.product_id
-JOIN ORDER_ITEM oi
+JOIN order_item oi
     ON oi.variant_id = pv.variant_id
 GROUP BY p.product_id, p.name
 HAVING SUM(oi.quantity) > (
@@ -207,8 +207,8 @@ HAVING SUM(oi.quantity) > (
     FROM (
         SELECT
             SUM(oi2.quantity) AS total_quantity
-        FROM PRODUCT_VARIANT pv2
-        JOIN ORDER_ITEM oi2
+        FROM product_variant pv2
+        JOIN order_item oi2
             ON oi2.variant_id = pv2.variant_id
         GROUP BY pv2.product_id
     ) AS product_sales
@@ -221,8 +221,8 @@ SELECT
     u.user_id,
     u.name,
     SUM(o.total_amount) AS total_spent
-FROM USERS u
-JOIN ORDERS o
+FROM users u
+JOIN orders o
     ON o.user_id = u.user_id
 GROUP BY u.user_id, u.name
 HAVING SUM(o.total_amount) > (
@@ -230,7 +230,7 @@ HAVING SUM(o.total_amount) > (
     FROM (
         SELECT
             SUM(total_amount) AS customer_total
-        FROM ORDERS
+        FROM orders
         GROUP BY user_id
     ) AS customer_spending
 );

@@ -1,6 +1,6 @@
 # E-Commerce Marketplace DBMS
 
-A database-driven multi-seller e-commerce marketplace built for the Database Management Systems course (UE23CS351A).
+A database-driven multi-seller e-commerce marketplace built for the Database Management Systems course (UE24CS351A).
 Transactional data (users, catalogue, inventory, orders, payments, returns) is stored in **MySQL**; flexible and
 read-heavy data (product specifications, reviews, search, recently viewed products and recommendations) is stored in **MongoDB**.
 
